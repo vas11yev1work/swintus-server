@@ -1,0 +1,25 @@
+import { Column, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Game } from './Game';
+import { UserRole } from '../utils/types';
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  username: string;
+
+  @Column({
+    type: 'simple-enum',
+    enum: UserRole,
+    default: UserRole.PLAYER,
+  })
+  role: UserRole;
+
+  @Column('simple-array')
+  cards: string[];
+
+  @ManyToOne(() => Game, game => game.users)
+  game: Game;
+}

@@ -1,0 +1,37 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "extends": [
+    "plugin:@typescript-eslint/recommended",
+    "eslint:recommended",
+    "prettier"
+  ],
+  "env": {
+    "es2021": true,
+    "node": true
+  },
+  "rules": {
+    "no-debugger": "warn",
+    "no-console": "warn",
+    "linebreak-style": "off",
+    "arrow-parens": "off",
+    "no-plusplus": "off",
+    "no-unused-vars": "off",
+    "no-undef": "off",
+    "no-restricted-globals": "off",
+    "no-nested-ternary": "off",
+    "prefer-destructuring": "off",
+    "import/prefer-default-export": "off",
+    "no-shadow": "off",
+    "lines-between-class-members": "off",
+    "class-methods-use-this": "off",
+    "radix": "off",
+    "prefer-template": "off",
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off"
+  }
+}
