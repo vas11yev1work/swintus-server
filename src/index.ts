@@ -23,7 +23,7 @@ const io = new Server(server, {
   },
 });
 
-app.get('/', (req, res) => {
+app.get('/api', (req, res) => {
   return res.json({ ok: true });
 });
 
