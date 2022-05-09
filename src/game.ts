@@ -3,6 +3,7 @@ import {
   CreateAndJoinGame,
   GameStatus,
   GetCards,
+  MessageData,
   StartGame,
   UserRole,
 } from './utils/types';
@@ -23,6 +24,7 @@ const sendServerError = (socket: Socket, e?: any) => {
 const publicGameInfo = (game: Game): Partial<Game> => {
   return {
     id: game.id,
+    uuid: game.uuid,
     gameName: game.gameName,
     gameStatus: game.gameStatus,
   };
@@ -36,7 +38,20 @@ const publicUserInfo = (user: User): Partial<User> => {
   };
 };
 
-function join(socket: Socket, io: Server, game: Game, user: User) {
+const getAllUsers = async (gameId: number): Promise<Array<Partial<User>>> => {
+  const game = await gameRepository.findOne({
+    where: { id: gameId },
+    relations: {
+      users: true,
+    },
+  });
+  if (game) {
+    return game.users.map(x => publicUserInfo(x));
+  }
+  return [];
+};
+
+async function join(socket: Socket, io: Server, game: Game, user: User) {
   socket.join(`game_${game.uuid}`);
   socket.emit(SocketEmit.GAME_INFO, publicGameInfo(game));
   socket.emit(SocketEmit.WHO_AM_I, {
@@ -46,9 +61,33 @@ function join(socket: Socket, io: Server, game: Game, user: User) {
   socket.broadcast
     .to(`game_${game.uuid}`)
     .emit(SocketEmit.USER_JOINED, publicUserInfo(user));
+  io.in(`game_${game.uuid}`).emit(
+    SocketEmit.USERS_LIST,
+    await getAllUsers(game.id)
+  );
 }
 
 export const game = (socket: Socket, io: Server) => {
+  socket.on(SocketOn.SEND_MESSAGE, async (data: MessageData) => {
+    const user = await userRepository.findOne({
+      where: {
+        id: socket.id,
+      },
+      relations: {
+        game: true,
+      },
+    });
+    if (!user) {
+      socket.emit(SocketEmit.GAME_ERROR, createError('Вы не состоите в игре'));
+      return;
+    }
+    io.in(`game_${user.game.uuid}`).emit(SocketEmit.NEW_MESSAGE, {
+      ...data,
+      username: user.username,
+      isAdmin: false,
+    });
+  });
+
   socket.on(SocketOn.CREATE_GAME, async (data: CreateAndJoinGame) => {
     try {
       const gameCandidate = await gameRepository.findOne({
@@ -64,6 +103,7 @@ export const game = (socket: Socket, io: Server) => {
       }
 
       const user = await userRepository.create({
+        id: socket.id,
         username: data.username,
         role: UserRole.ADMIN,
         cards: [],
@@ -78,8 +118,7 @@ export const game = (socket: Socket, io: Server) => {
       game.users.push(user);
 
       await gameRepository.save(game);
-
-      join(socket, io, game, user);
+      await join(socket, io, game, user);
     } catch (e) {
       sendServerError(socket, e);
     }
@@ -115,16 +154,16 @@ export const game = (socket: Socket, io: Server) => {
       }
 
       const user = await userRepository.create({
+        id: socket.id,
         username: data.username,
         role: UserRole.PLAYER,
         cards: [],
       });
       await userRepository.save(user);
-
       game.users.push(user);
-      await gameRepository.save(game);
 
-      join(socket, io, game, user);
+      await gameRepository.save(game);
+      await join(socket, io, game, user);
     } catch (e) {
       sendServerError(socket, e);
     }
@@ -156,7 +195,7 @@ export const game = (socket: Socket, io: Server) => {
       }
 
       const user = await userRepository.findOne({
-        where: { id: data.userId },
+        where: { id: socket.id },
       });
 
       if (user.role !== UserRole.ADMIN) {
@@ -168,7 +207,6 @@ export const game = (socket: Socket, io: Server) => {
       }
 
       const userIds = game.users.map(u => u.id);
-
       if (!userIds.includes(user.id)) {
         socket.emit(
           SocketEmit.GAME_ERROR,
@@ -189,21 +227,81 @@ export const game = (socket: Socket, io: Server) => {
   });
 
   socket.on(SocketOn.GET_CARDS, async (data: GetCards) => {
-    const user = await userRepository.findOne({
-      where: { id: data.userId },
-      relations: {
-        game: true,
-      },
-    });
+    try {
+      const user = await userRepository.findOne({
+        where: { id: socket.id },
+        relations: {
+          game: true,
+        },
+      });
 
-    const game = await gameRepository.findOne({
-      where: { id: user.game.id },
-    });
+      const game = await gameRepository.findOne({
+        where: { id: user.game.id },
+      });
 
-    const cardsForUser = game.heap.splice(0, data.count);
-    await gameRepository.save(game);
+      const cardsForUser = game.heap.splice(0, data.count);
+      await gameRepository.save(game);
 
-    user.cards.push(...cardsForUser);
-    await userRepository.save(user);
+      user.cards.push(...cardsForUser);
+      await userRepository.save(user);
+    } catch (e) {
+      sendServerError(socket, e);
+    }
   });
+
+  socket.on(SocketOn.DISCONNECT, async () => {
+    try {
+      const user = await userRepository.findOne({
+        where: { id: socket.id },
+        relations: {
+          game: true,
+        },
+      });
+      const gameId = `game_${user.game.uuid}`;
+      io.in(gameId).emit(SocketEmit.NEW_MESSAGE, {
+        message: `Пользователь ${user.username} покинул игру`,
+        username: 'ADMIN',
+        isAdmin: true,
+      });
+      io.in(gameId).emit(
+        SocketEmit.USERS_LIST,
+        await getAllUsers(user.game.id)
+      );
+      await userRepository.remove(user);
+      const game = await gameRepository.findOne({
+        where: { id: user.game.id },
+        relations: {
+          users: true,
+        },
+      });
+      if (game.users.length === 0) {
+        await gameRepository.remove(game);
+      }
+    } catch (e) {
+      sendServerError(socket, e);
+    }
+  });
+
+  // socket.on(SocketOn.DISCONNECT, async () => {
+  //   try {
+  //     const user = await userRepository.findOne({
+  //       where: {
+  //         id: socket.id,
+  //       },
+  //       relations: {
+  //         game: true,
+  //       },
+  //     });
+  //     if (
+  //       (user.role === UserRole.ADMIN &&
+  //         user.game.gameStatus === GameStatus.PENDING) ||
+  //       user.game.users.length === 1
+  //     ) {
+  //       await gameRepository.delete({ id: user.game.id });
+  //     }
+  //     await userRepository.remove(user);
+  //   } catch (e) {
+  //     sendServerError(socket, e);
+  //   }
+  // });
 };

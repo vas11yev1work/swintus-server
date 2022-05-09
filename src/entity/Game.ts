@@ -30,6 +30,6 @@ export class Game {
   @Column('simple-array')
   heap: string[];
 
-  @OneToMany(() => User, user => user.game)
+  @OneToMany(() => User, user => user.game, { onDelete: 'CASCADE' })
   users: User[];
 }

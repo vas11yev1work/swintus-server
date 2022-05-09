@@ -8,17 +8,19 @@ export enum GameStatus {
   STARTED = 'STARTED',
 }
 
+export interface MessageData {
+  message: string;
+}
+
 export interface CreateAndJoinGame {
   gameName: string;
   username: string;
 }
 
 export interface StartGame {
-  userId: number;
   gameId: number;
 }
 
 export interface GetCards {
-  userId: number;
   count: number;
 }
